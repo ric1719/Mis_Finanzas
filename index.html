@@ -29,6 +29,14 @@ button{cursor:pointer;background:var(--ac);color:#fff;border:0;font-weight:600}
 .x{width:auto;background:none;color:var(--mu);padding:4px 8px;font-size:18px}
 .wrap{overflow-x:auto}
 #st{font-size:12px;color:var(--mu);margin:0 0 8px}
+details.dy{border-top:1px solid var(--bd)}details.dy:first-child{border-top:0}
+details.dy summary{display:flex;justify-content:space-between;align-items:center;padding:11px 0;cursor:pointer;list-style:none;gap:8px}
+details.dy summary::-webkit-details-marker{display:none}
+details.dy summary::before{content:"▸";color:var(--mu);margin-right:8px;transition:transform .15s}
+details.dy[open] summary::before{transform:rotate(90deg)}
+details.dy summary>span{flex:1;font-weight:600;text-transform:capitalize}
+details.dy summary small{display:block;color:var(--mu);font-weight:400;text-transform:none}
+details.dy .li{padding-left:18px}
 </style></head><body><main>
 <h1>💰 Mis Finanzas</h1>
 <p id="st">Cargando…</p>
@@ -78,7 +86,7 @@ const fdb=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:p
 let uid=null,unsubs=[];
 const dref=(c,id)=>doc(fdb,"users",uid,c,id);
 const CI=["Sueldo","Extra","Otros ingresos"],CO=["Comida","Transporte","Servicios","Estudios","Salud","Ocio","Deudas","Otros"];
-let editId=null,tx=[],debts=[],goal={name:"",target:0},type="o",mode="local";
+let openDays=new Set(),dayLimit=7,dayInit=false,editId=null,tx=[],debts=[],goal={name:"",target:0},type="o",mode="local";
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fm=n=>"S/ "+(Math.round(n*100)/100).toLocaleString("es-PE",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -144,7 +152,7 @@ $("add").onclick=()=>{
  save({id:editId||Date.now().toString(36)+Math.random().toString(36).slice(2,5),type,amount:a,cat:$("ct").value,note:$("nt").value.trim(),date:$("dt").value||today()});
  $("am").value="";$("nt").value="";editId=null;$("add").textContent="Guardar"};
 function arm(b,fn){if(b.dataset.a){fn();return}b.dataset.a="1";const t=b.textContent;b.textContent="¿Borrar?";b.style.color="var(--out)";setTimeout(()=>{b.dataset.a="";b.textContent=t;b.style.color=""},3000)}
-$("mo").onchange=render;
+$("mo").onchange=()=>{dayLimit=7;openDays.clear();dayInit=false;render()};
 async function saveDebt(o){
  if(mode=="db"){try{await setDoc(dref("debts",o.id),o);return}catch(e){}}
  debts=debts.filter(d=>d.id!==o.id).concat(o);lsSet("fin_debts",debts);render()}
@@ -207,7 +215,16 @@ function render(){
  $("ch").innerHTML=s+`<text x="10" y="10" font-size="10" fill="var(--in)">■ Ingresos</text><text x="75" y="10" font-size="10" fill="var(--out)">■ Egresos</text>`;
  // list
  const sorted=[...ms].sort((a,b)=>b.date.localeCompare(a.date));
- $("ls").innerHTML=sorted.length?sorted.map(t=>`<div class="li"><div><b>${esc(t.cat)}</b>${t.note?" · "+esc(t.note):""}<small>${esc(t.date)}</small></div><div style="display:flex;align-items:center"><b class="${t.type=="i"?"in":"out"}">${t.type=="i"?"+":"−"}${fm(t.amount)}</b><button class="x ed" data-id="${esc(t.id)}" aria-label="Editar">✎</button><button class="x xd" data-id="${esc(t.id)}" aria-label="Eliminar">×</button></div></div>`).join(""):'<p class="k">Aún no hay movimientos este mes.</p>';
+ const days=[...new Set(sorted.map(t=>t.date))];
+ if(!dayInit&&days.length){openDays.add(days[0]);dayInit=true}
+ const row=t=>`<div class="li"><div><b>${esc(t.cat)}</b>${t.note?" · "+esc(t.note):""}</div><div style="display:flex;align-items:center"><b class="${t.type=="i"?"in":"out"}">${t.type=="i"?"+":"−"}${fm(t.amount)}</b><button class="x ed" data-id="${esc(t.id)}" aria-label="Editar">✎</button><button class="x xd" data-id="${esc(t.id)}" aria-label="Eliminar">×</button></div></div>`;
+ const lbl=d=>new Date(d+"T12:00:00").toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
+ $("ls").innerHTML=days.length?days.slice(0,dayLimit).map(day=>{const l=sorted.filter(t=>t.date==day),net=sum(l,"i")-sum(l,"o");
+  return `<details class="dy" data-d="${esc(day)}"${openDays.has(day)?" open":""}><summary><span>${esc(lbl(day))}<small>${l.length} ${l.length==1?"movimiento":"movimientos"}</small></span><b class="${net>=0?"in":"out"}">${net>=0?"+":"−"}${fm(Math.abs(net))}</b></summary>${l.map(row).join("")}</details>`}).join("")
+  +(days.length>dayLimit?`<button id="more" style="margin-top:10px;background:var(--bg);color:var(--tx);border:1px solid var(--bd)">Ver más días (${days.length-dayLimit})</button>`:"")
+  :'<p class="k">Aún no hay movimientos este mes.</p>';
+ document.querySelectorAll("details.dy").forEach(d=>d.ontoggle=()=>{d.open?openDays.add(d.dataset.d):openDays.delete(d.dataset.d)});
+ const mb=$("more");if(mb)mb.onclick=()=>{dayLimit+=7;render()};
  document.querySelectorAll(".xd").forEach(b=>b.onclick=()=>arm(b,()=>del(b.dataset.id)));
  document.querySelectorAll(".ed").forEach(b=>b.onclick=()=>{const t=tx.find(x=>x.id==b.dataset.id);if(!t)return;editId=t.id;setType(t.type);$("ct").value=t.cat;$("am").value=t.amount;$("dt").value=t.date;$("nt").value=t.note||"";$("add").textContent="Guardar cambios";window.scrollTo({top:0,behavior:"smooth"})});
  renderDebts(b);
